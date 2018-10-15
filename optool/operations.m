@@ -430,7 +430,7 @@ BOOL renameBinary(NSMutableData *binary, struct thin_header macho, NSString *fro
                 off_t name_offset = binary.currentOffset + command->dylib.name.offset;
                 NSRange name_range = NSMakeRange(name_offset, command->cmdsize - command->dylib.name.offset);
                 char *name = (char *)[[binary subdataWithRange:name_range] bytes];
-
+                
                 if ([@(name) isEqualToString:from] || (!from && cmd == LC_ID_DYLIB)) {
                     const char *replacement = to.fileSystemRepresentation;
                     
@@ -456,12 +456,61 @@ BOOL renameBinary(NSMutableData *binary, struct thin_header macho, NSString *fro
                                           withBytes:&zero
                                              length:labs(shift)];
                     }
-                                        
+                    
                     command->cmdsize += shift;
                     macho.header.sizeofcmds += shift;
                     
                     [binary replaceBytesInRange:NSMakeRange(macho.offset, sizeof(macho.header)) withBytes:&macho.header];
                     [binary replaceBytesInRange:name_range withBytes:replacement length:name_length];
+                    
+                    success = YES;
+                }
+                
+                binary.currentOffset += size;
+                break;
+            }
+            default:
+                binary.currentOffset += size;
+                break;
+        }
+    }
+    
+    return success;
+}
+
+BOOL resetVersion(NSMutableData *binary, struct thin_header macho, NSString *from) {
+    binary.currentOffset = macho.size + macho.offset;
+    
+    BOOL success = NO;
+    
+    // Loop through compatible LC_LOAD commands until we find one which points
+    // to the given dylib and tell the caller where it is and if it exists
+    for (int i = 0; i < macho.header.ncmds; i++) {
+        if (binary.currentOffset >= binary.length ||
+            binary.currentOffset > macho.offset + macho.size + macho.header.sizeofcmds)
+            break;
+        
+        uint32_t cmd  = [binary intAtOffset:binary.currentOffset];
+        uint32_t size = [binary intAtOffset:binary.currentOffset + 4];
+        
+        switch (cmd) {
+            case LC_REEXPORT_DYLIB:
+            case LC_LOAD_UPWARD_DYLIB:
+            case LC_LOAD_WEAK_DYLIB:
+            case LC_LOAD_DYLIB: {
+                struct dylib_command *command = (struct dylib_command *)(binary.mutableBytes + binary.currentOffset);
+                off_t name_offset = binary.currentOffset + command->dylib.name.offset;
+                NSRange name_range = NSMakeRange(name_offset, command->cmdsize - command->dylib.name.offset);
+                char *name = (char *)[[binary subdataWithRange:name_range] bytes];
+                
+                if ([@(name) isEqualToString:from]) {
+                    
+                    command->dylib.current_version = 0;
+                    command->dylib.compatibility_version = 0;
+                    
+                    LOG("Replacing %d bytes in %d", sizeof(*command), binary.currentOffset);
+                    
+                    [binary replaceBytesInRange:NSMakeRange(binary.currentOffset, sizeof(*command)) withBytes:command length:sizeof(*command)];
                     
                     success = YES;
                 }

@@ -57,20 +57,22 @@ int main(int argc, const char * argv[]) {
         XPMArgumentSignature *uninstall = [XPMArgumentSignature argumentSignatureWithFormat:@"[u uninstall]"];
         XPMArgumentSignature *aslr = [XPMArgumentSignature argumentSignatureWithFormat:@"[a aslr]"];
         XPMArgumentSignature *unrestrict = [XPMArgumentSignature argumentSignatureWithFormat:@"[c unrestrict]"];
+        XPMArgumentSignature *vreset = [XPMArgumentSignature argumentSignatureWithFormat:@"[c vreset]"];
         
         [strip setInjectedSignatures:[NSSet setWithObjects:target, weak, nil]];
         [restore setInjectedSignatures:[NSSet setWithObjects:target, nil]];
         [install setInjectedSignatures:[NSSet setWithObjects:target, payload, nil]];
         [uninstall setInjectedSignatures:[NSSet setWithObjects:target, payload, nil]];
+        [vreset setInjectedSignatures:[NSSet setWithObjects:target, payload, nil]];
         [aslr setInjectedSignatures:[NSSet setWithObjects:target, nil]];
         [unrestrict setInjectedSignatures:[NSSet setWithObjects:target, weak, nil]];
         [rename setInjectedSignatures:[NSSet setWithObjects:target, nil]];
         
         [weak setInjectedSignatures:[NSSet setWithObjects:strip, unrestrict, nil]];
-        [payload setInjectedSignatures:[NSSet setWithObjects:install, uninstall, nil]];
+        [payload setInjectedSignatures:[NSSet setWithObjects:install, uninstall, vreset, nil]];
         [command setInjectedSignatures:[NSSet setWithObjects:install, nil]];
 
-        XPMArgumentPackage *package = [[NSProcessInfo processInfo] xpmargs_parseArgumentsWithSignatures:@[resign, command, strip, restore, install, uninstall, output, backup, aslr, help, unrestrict, rename]];
+        XPMArgumentPackage *package = [[NSProcessInfo processInfo] xpmargs_parseArgumentsWithSignatures:@[resign, command, strip, restore, install, uninstall, output, backup, aslr, help, unrestrict, rename, vreset]];
 
         NSString *targetPath = [package firstObjectForSignature:target];
         if (!targetPath || [package unknownSwitches].count > 0 || [package booleanValueForSignature:help]) {
@@ -160,6 +162,13 @@ int main(int argc, const char * argv[]) {
                     LOG("Successfully removed all entries for %s", dylibPath.UTF8String);
                 } else {
                     LOG("No entries for %s exist to remove", dylibPath.UTF8String);
+                    return OPErrorNoEntries;
+                }
+            } else if ([package booleanValueForSignature:vreset]) {
+                if (resetVersion(binary, macho, dylibPath)) {
+                    LOG("Successfully reset versions for %s", dylibPath.UTF8String);
+                } else {
+                    LOG("No entries for %s exist to reset versions", dylibPath.UTF8String);
                     return OPErrorNoEntries;
                 }
             } else if ([package booleanValueForSignature:install]) {
